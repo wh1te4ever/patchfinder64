@@ -541,6 +541,45 @@ remove_pac(addr_t addr)
     return addr |= 0xfffffff000000000;
 }
 
+static addr_t
+follow_adrl(const uint8_t *buf, addr_t call)
+{
+    //Stage1. ADRP
+    uint32_t op = *(uint32_t *)(buf + call);
+//    printf("op: 0x%llx\n", op);
+    
+    uint64_t imm_hi_lo = (uint64_t)((op >> 3)  & 0x1FFFFC);
+    imm_hi_lo |= (uint64_t)((op >> 29) & 0x3);
+    if ((op & 0x800000) != 0) {
+        // Sign extend
+        imm_hi_lo |= 0xFFFFFFFFFFE00000;
+    }
+    
+    // Build real imm
+    uint64_t imm = imm_hi_lo << 12;
+//    printf("imm: 0x%llx\n", imm);
+    
+    uint64_t ret = (call & ~0xFFF) + imm;
+    
+    //Stage2. ADD
+    uint32_t op2 = *(uint32_t *)(buf + call + 4);
+    uint64_t imm12 = (op2 & 0x3FFC00) >> 10;
+        
+    uint32_t shift = (op2 >> 22) & 1;
+    if (shift == 1) {
+        imm12 = imm12 << 12;
+    }
+    
+    uint8_t regDst = (uint8_t)(op2 & 0x1F);
+    uint8_t regSrc = (uint8_t)((op2 >> 5) & 0x1F);
+//    printf("regSrc: 0x%x\n", imm12);
+    
+    ret += imm12;
+//    printf("ret: 0x%llx\n", ret + kerndumpbase + imm12);
+    
+    return ret;
+}
+
 /* kernel iOS10 **************************************************************/
 
 #include <fcntl.h>
@@ -621,21 +660,10 @@ init_kernel(size_t (*kread)(uint64_t, void *, size_t), addr_t kernel_base, const
     if (IS64(buf)) {
         is64 = 4;
     }
-
     q = buf + sizeof(struct mach_header) + is64;
-//    printf("hdr->ncmds: %lld\n", hdr->ncmds);
+//    printf("hdr->ncmds: %u\n", hdr->ncmds);
     for (i = 0; i < hdr->ncmds; i++) {
         const struct load_command *cmd = (struct load_command *)q;
-//        
-//        uint64_t c = *(uint64_t *)cmd;
-//        printf("cmd: 0x%llx\n", c);
-//        printf("lcmd->cmd: 0x%llx\n", cmd->cmd);
-//        printf("i: %d, q: %lld, cmd->cmdsize: %d\n", i, q, cmd->cmdsize);
-////        if(c > 0x100000000000) {
-////            *(uint64_t *)cmd = 0;
-////            q = (uint8_t*)q + cmd->cmdsize;
-////            continue;
-////        }
         
         if (cmd->cmd == LC_SEGMENT_64) {
             const struct segment_command_64 *seg = (struct segment_command_64 *)q;
@@ -891,6 +919,7 @@ find_strref(const char *string, int n, enum string_bases string_base, bool full_
             size = cstring_size;
             break;
     }
+//    printf("base: 0x%llx, size: 0x%llx\n", base, size);
     addr_t off = 0;
     while ((str = boyermoore_horspool_memmem(kernel + base + off, size - off, (uint8_t *)string, strlen(string)))) {
         // Only match the beginning of strings
@@ -960,6 +989,47 @@ find_symbol(const char *symbol)
     return 0;
 }
 
+//XXXXX
+addr_t find_cdevsw(void)
+{
+    //1. Find opcode (1F 09 00 31 20 02 00 54 1F 05 00 31 A1 0A 00 54)
+    //    cmn w8, #2
+    //    b.eq #0x48
+    //    cmn w8, #1
+    //    b.ne #0x160
+    
+    uint32_t bytes[] = {
+        0x3100091f,
+        0x54000220,
+        0x3100051f,
+        0x54000aa1
+    };
+    
+    uint64_t addr = (uint64_t)boyermoore_horspool_memmem((unsigned char *)((uint64_t)kernel + prelink_base), prelink_size, (const unsigned char *)bytes, sizeof(bytes));
+    
+    if (!addr) {
+        return 0;
+    }
+    addr -= (uint64_t)kernel;
+    
+    //2. Find begin of address(bof64)
+    addr = bof64(kernel, xnucore_base, addr);
+    if (!addr) {
+        return 0;
+    }
+    
+    //3. Step into High address, and find adrp opcode.
+    addr = step64(kernel, addr, 0x30, INSN_ADRP);
+    if (!addr) {
+        return 0;
+    }
+    //4. Get label from adrl opcode.
+    addr = follow_adrl(kernel, addr);
+    
+    return addr + kerndumpbase;
+}
+//XXXXX
+
 #ifdef HAVE_MAIN
 
 int
@@ -996,6 +1066,7 @@ main(int argc, char **argv)
     } \
 } while(false)
     
+    CHECK(cdevsw);
     
     
     term_kernel();
