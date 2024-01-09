@@ -116,119 +116,119 @@ boyermoore_horspool_memmem(const unsigned char* haystack, size_t hlen,
 
 static int HighestSetBit(int N, uint32_t imm)
 {
-	int i;
-	for (i = N - 1; i >= 0; i--) {
-		if (imm & (1 << i)) {
-			return i;
-		}
-	}
-	return -1;
+    int i;
+    for (i = N - 1; i >= 0; i--) {
+        if (imm & (1 << i)) {
+            return i;
+        }
+    }
+    return -1;
 }
 
-static uint64_t ZeroExtendOnes(unsigned M, unsigned N)	// zero extend M ones to N width
+static uint64_t ZeroExtendOnes(unsigned M, unsigned N)    // zero extend M ones to N width
 {
-	(void)N;
-	return ((uint64_t)1 << M) - 1;
+    (void)N;
+    return ((uint64_t)1 << M) - 1;
 }
 
 static uint64_t RORZeroExtendOnes(unsigned M, unsigned N, unsigned R)
 {
-	uint64_t val = ZeroExtendOnes(M, N);
-	if (R == 0) {
-		return val;
-	}
-	return ((val >> R) & (((uint64_t)1 << (N - R)) - 1)) | ((val & (((uint64_t)1 << R) - 1)) << (N - R));
+    uint64_t val = ZeroExtendOnes(M, N);
+    if (R == 0) {
+        return val;
+    }
+    return ((val >> R) & (((uint64_t)1 << (N - R)) - 1)) | ((val & (((uint64_t)1 << R) - 1)) << (N - R));
 }
 
 static uint64_t Replicate(uint64_t val, unsigned bits)
 {
-	uint64_t ret = val;
-	unsigned shift;
-	for (shift = bits; shift < 64; shift += bits) {	// XXX actually, it is either 32 or 64
-		ret |= (val << shift);
-	}
-	return ret;
+    uint64_t ret = val;
+    unsigned shift;
+    for (shift = bits; shift < 64; shift += bits) {    // XXX actually, it is either 32 or 64
+        ret |= (val << shift);
+    }
+    return ret;
 }
 
 static int DecodeBitMasks(unsigned immN, unsigned imms, unsigned immr, int immediate, uint64_t *newval)
 {
-	unsigned levels, S, R, esize;
-	int len = HighestSetBit(7, (immN << 6) | (~imms & 0x3F));
-	if (len < 1) {
-		return -1;
-	}
-	levels = (unsigned int)ZeroExtendOnes(len, 6);
-	if (immediate && (imms & levels) == levels) {
-		return -1;
-	}
-	S = imms & levels;
-	R = immr & levels;
-	esize = 1 << len;
-	*newval = Replicate(RORZeroExtendOnes(S + 1, esize, R), esize);
-	return 0;
+    unsigned levels, S, R, esize;
+    int len = HighestSetBit(7, (immN << 6) | (~imms & 0x3F));
+    if (len < 1) {
+        return -1;
+    }
+    levels = (unsigned int)ZeroExtendOnes(len, 6);
+    if (immediate && (imms & levels) == levels) {
+        return -1;
+    }
+    S = imms & levels;
+    R = immr & levels;
+    esize = 1 << len;
+    *newval = Replicate(RORZeroExtendOnes(S + 1, esize, R), esize);
+    return 0;
 }
 
 static int DecodeMov(uint32_t opcode, uint64_t total, int first, uint64_t *newval)
 {
-	unsigned o = (opcode >> 29) & 3;
-	unsigned k = (opcode >> 23) & 0x3F;
-	unsigned rn, rd;
-	uint64_t i;
+    unsigned o = (opcode >> 29) & 3;
+    unsigned k = (opcode >> 23) & 0x3F;
+    unsigned rn, rd;
+    uint64_t i;
 
-	if (k == 0x24 && o == 1) {			// MOV (bitmask imm) <=> ORR (immediate)
-		unsigned s = (opcode >> 31) & 1;
-		unsigned N = (opcode >> 22) & 1;
-		if (s == 0 && N != 0) {
-			return -1;
-		}
-		rn = (opcode >> 5) & 0x1F;
-		if (rn == 31) {
-			unsigned imms = (opcode >> 10) & 0x3F;
-			unsigned immr = (opcode >> 16) & 0x3F;
-			return DecodeBitMasks(N, imms, immr, 1, newval);
-		}
-	} else if (k == 0x25) {				// MOVN/MOVZ/MOVK
-		unsigned s = (opcode >> 31) & 1;
-		unsigned h = (opcode >> 21) & 3;
-		if (s == 0 && h > 1) {
-			return -1;
-		}
-		i = (opcode >> 5) & 0xFFFF;
-		h *= 16;
-		i <<= h;
-		if (o == 0) {				// MOVN
-			*newval = ~i;
-			return 0;
-		} else if (o == 2) {			// MOVZ
-			*newval = i;
-			return 0;
-		} else if (o == 3 && !first) {		// MOVK
-			*newval = (total & ~((uint64_t)0xFFFF << h)) | i;
-			return 0;
-		}
-	} else if ((k | 1) == 0x23 && !first) {		// ADD (immediate)
-		unsigned h = (opcode >> 22) & 3;
-		if (h > 1) {
-			return -1;
-		}
-		rd = opcode & 0x1F;
-		rn = (opcode >> 5) & 0x1F;
-		if (rd != rn) {
-			return -1;
-		}
-		i = (opcode >> 10) & 0xFFF;
-		h *= 12;
-		i <<= h;
-		if (o & 2) {				// SUB
-			*newval = total - i;
-			return 0;
-		} else {				// ADD
-			*newval = total + i;
-			return 0;
-		}
-	}
+    if (k == 0x24 && o == 1) {            // MOV (bitmask imm) <=> ORR (immediate)
+        unsigned s = (opcode >> 31) & 1;
+        unsigned N = (opcode >> 22) & 1;
+        if (s == 0 && N != 0) {
+            return -1;
+        }
+        rn = (opcode >> 5) & 0x1F;
+        if (rn == 31) {
+            unsigned imms = (opcode >> 10) & 0x3F;
+            unsigned immr = (opcode >> 16) & 0x3F;
+            return DecodeBitMasks(N, imms, immr, 1, newval);
+        }
+    } else if (k == 0x25) {                // MOVN/MOVZ/MOVK
+        unsigned s = (opcode >> 31) & 1;
+        unsigned h = (opcode >> 21) & 3;
+        if (s == 0 && h > 1) {
+            return -1;
+        }
+        i = (opcode >> 5) & 0xFFFF;
+        h *= 16;
+        i <<= h;
+        if (o == 0) {                // MOVN
+            *newval = ~i;
+            return 0;
+        } else if (o == 2) {            // MOVZ
+            *newval = i;
+            return 0;
+        } else if (o == 3 && !first) {        // MOVK
+            *newval = (total & ~((uint64_t)0xFFFF << h)) | i;
+            return 0;
+        }
+    } else if ((k | 1) == 0x23 && !first) {        // ADD (immediate)
+        unsigned h = (opcode >> 22) & 3;
+        if (h > 1) {
+            return -1;
+        }
+        rd = opcode & 0x1F;
+        rn = (opcode >> 5) & 0x1F;
+        if (rd != rn) {
+            return -1;
+        }
+        i = (opcode >> 10) & 0xFFF;
+        h *= 12;
+        i <<= h;
+        if (o & 2) {                // SUB
+            *newval = total - i;
+            return 0;
+        } else {                // ADD
+            *newval = total + i;
+            return 0;
+        }
+    }
 
-	return -1;
+    return -1;
 }
 
 /* patchfinder ***************************************************************/
@@ -344,7 +344,7 @@ xref64(const uint8_t *buf, addr_t start, addr_t end, addr_t what)
             signed adr = ((op & 0x60000000) >> 18) | ((op & 0xFFFFE0) << 8);
             //printf("%llx: ADRP X%d, 0x%llx\n", i, reg, ((long long)adr << 1) + (i & ~0xFFF));
             value[reg] = ((long long)adr << 1) + (i & ~0xFFF);
-            continue;				// XXX should not XREF on its own?
+            continue;                // XXX should not XREF on its own?
         /*} else if ((op & 0xFFE0FFE0) == 0xAA0003E0) {
             unsigned rd = op & 0x1F;
             unsigned rm = (op >> 16) & 0x1F;
@@ -372,14 +372,14 @@ xref64(const uint8_t *buf, addr_t start, addr_t end, addr_t what)
             unsigned rn = (op >> 5) & 0x1F;
             unsigned imm = ((op >> 10) & 0xFFF) << 3;
             //printf("%llx: LDR X%d, [X%d, 0x%x]\n", i, reg, rn, imm);
-            if (!imm) continue;			// XXX not counted as true xref
-            value[reg] = value[rn] + imm;	// XXX address, not actual value
+            if (!imm) continue;            // XXX not counted as true xref
+            value[reg] = value[rn] + imm;    // XXX address, not actual value
         /*} else if ((op & 0xF9C00000) == 0xF9000000) {
             unsigned rn = (op >> 5) & 0x1F;
             unsigned imm = ((op >> 10) & 0xFFF) << 3;
             //printf("%llx: STR X%d, [X%d, 0x%x]\n", i, reg, rn, imm);
-            if (!imm) continue;			// XXX not counted as true xref
-            value[rn] = value[rn] + imm;	// XXX address, not actual value*/
+            if (!imm) continue;            // XXX not counted as true xref
+            value[rn] = value[rn] + imm;    // XXX address, not actual value*/
         } else if ((op & 0x9F000000) == 0x10000000) {
             signed adr = ((op & 0x60000000) >> 18) | ((op & 0xFFFFE0) << 8);
             //printf("%llx: ADR X%d, 0x%llx\n", i, reg, ((long long)adr >> 11) + i);
@@ -387,7 +387,7 @@ xref64(const uint8_t *buf, addr_t start, addr_t end, addr_t what)
         } else if ((op & 0xFF000000) == 0x58000000) {
             unsigned adr = (op & 0xFFFFE0) >> 3;
             //printf("%llx: LDR X%d, =0x%llx\n", i, reg, adr + i);
-            value[reg] = adr + i;		// XXX address, not actual value
+            value[reg] = adr + i;        // XXX address, not actual value
         } else if ((op & 0xFC000000) == 0x94000000) {
             // BL addr
             signed imm = (op & 0x3FFFFFF) << 2;
@@ -444,14 +444,14 @@ calc64(const uint8_t *buf, addr_t start, addr_t end, int which)
             unsigned rn = (op >> 5) & 0x1F;
             unsigned imm = ((op >> 10) & 0xFFF) << 3;
             //printf("%llx: LDR X%d, [X%d, 0x%x]\n", i, reg, rn, imm);
-            if (!imm) continue;			// XXX not counted as true xref
-            value[reg] = value[rn] + imm;	// XXX address, not actual value
+            if (!imm) continue;            // XXX not counted as true xref
+            value[reg] = value[rn] + imm;    // XXX address, not actual value
         } else if ((op & 0xF9C00000) == 0xF9000000) {
             unsigned rn = (op >> 5) & 0x1F;
             unsigned imm = ((op >> 10) & 0xFFF) << 3;
             //printf("%llx: STR X%d, [X%d, 0x%x]\n", i, reg, rn, imm);
-            if (!imm) continue;			// XXX not counted as true xref
-            value[rn] = value[rn] + imm;	// XXX address, not actual value
+            if (!imm) continue;            // XXX not counted as true xref
+            value[rn] = value[rn] + imm;    // XXX address, not actual value
         } else if ((op & 0x9F000000) == 0x10000000) {
             signed adr = ((op & 0x60000000) >> 18) | ((op & 0xFFFFE0) << 8);
             //printf("%llx: ADR X%d, 0x%llx\n", i, reg, ((long long)adr >> 11) + i);
@@ -459,7 +459,7 @@ calc64(const uint8_t *buf, addr_t start, addr_t end, int which)
         } else if ((op & 0xFF000000) == 0x58000000) {
             unsigned adr = (op & 0xFFFFE0) >> 3;
             //printf("%llx: LDR X%d, =0x%llx\n", i, reg, adr + i);
-            value[reg] = adr + i;		// XXX address, not actual value
+            value[reg] = adr + i;        // XXX address, not actual value
         } else if ((op & 0xF9C00000) == 0xb9400000) { // 32bit
             unsigned rn = (op >> 5) & 0x1F;
             unsigned imm = ((op >> 10) & 0xFFF) << 2;
@@ -581,11 +581,10 @@ follow_adrl(const uint8_t *buf, addr_t call)
 }
 
 static addr_t
-follow_adrpStr(const uint8_t *buf, addr_t call)
+follow_adrpLdr(const uint8_t *buf, addr_t call)
 {
     //Stage1. ADRP
     uint32_t op = *(uint32_t *)(buf + call);
-//    printf("op: 0x%llx\n", op);
     
     uint64_t imm_hi_lo = (uint64_t)((op >> 3)  & 0x1FFFFC);
     imm_hi_lo |= (uint64_t)((op >> 29) & 0x3);
@@ -757,12 +756,12 @@ init_kernel(size_t (*kread)(uint64_t, void *, size_t), addr_t kernel_base, const
             uint32_t *ptr = (uint32_t *)(cmd + 1);
             uint32_t flavor = ptr[0];
             struct {
-                uint64_t x[29];	/* General purpose registers x0-x28 */
-                uint64_t fp;	/* Frame pointer x29 */
-                uint64_t lr;	/* Link register x30 */
-                uint64_t sp;	/* Stack pointer x31 */
-                uint64_t pc; 	/* Program counter */
-                uint32_t cpsr;	/* Current program status register */
+                uint64_t x[29];    /* General purpose registers x0-x28 */
+                uint64_t fp;    /* Frame pointer x29 */
+                uint64_t lr;    /* Link register x30 */
+                uint64_t sp;    /* Stack pointer x31 */
+                uint64_t pc;     /* Program counter */
+                uint32_t cpsr;    /* Current program status register */
             } *thread = (void *)(ptr + 2);
             if (flavor == 6) {
                 kernel_entry = thread->pc;
@@ -1020,38 +1019,42 @@ find_symbol(const char *symbol)
 //XXXXX
 addr_t find_cdevsw(void)
 {
-    //1. Find opcode (1F 09 00 31 20 02 00 54 1F 05 00 31 A1 0A 00 54)
-    //    cmn w8, #2
-    //    b.eq #0x48
-    //    cmn w8, #1
-    //    b.ne #0x160
+//    MOV             X1, #0
+//    com.apple.kernel:__text:FFFFFFF0081FB580                 MOV             X2, #0
+//    com.apple.kernel:__text:FFFFFFF0081FB584                 MOV             W3, #0
+//    com.apple.kernel:__text:FFFFFFF0081FB588                 MOV             W4, #1
+//    com.apple.kernel:__text:FFFFFFF0081FB58C                 MOV             X5, #0
+//    01 00 80 D2
+//    02 00 80 D2
+//    03 00 80 52
+//    24 00 80 52
+//    05 00 80 D2
+    //1. opcode
+    bool found = false;
+    uint64_t addr = 0;
+    addr_t off;
+    uint32_t *k;
+    k = (uint32_t *)(kernel + xnucore_base);
+    for (off = 0; off < xnucore_size - 4; off += 4, k++) {
+        if ((k[0] & 0xff000000) == 0xb4000000   //cbz
+            && k[1] == 0xd2800001   //mov x1, #0
+            && k[2] == 0xd2800002   //mov x2, #0
+            && k[3] == 0x52800003   //mov w3, #0
+            && k[4] == 0x52800024   //mov w4, #1
+            && k[5] == 0xd2800005  /* mov x5, #0 */) {
+            addr = off + xnucore_base;
+            found = true;
+        }
+    }
+    if(!found)
+        return 0;
     
-    uint32_t bytes[] = {
-        0x3100091f,
-        0x54000220,
-        0x3100051f,
-        0x54000aa1
-    };
-    
-    uint64_t addr = (uint64_t)boyermoore_horspool_memmem((unsigned char *)((uint64_t)kernel + xnucore_base), xnucore_size, (const unsigned char *)bytes, sizeof(bytes));
-    
+    //2. Step into High address, and find adrp opcode.
+    addr = step64(kernel, addr, 0x80, INSN_ADRP);
     if (!addr) {
         return 0;
     }
-    addr -= (uint64_t)kernel;
-    
-    //2. Find begin of address(bof64)
-    addr = bof64(kernel, xnucore_base, addr);
-    if (!addr) {
-        return 0;
-    }
-    
-    //3. Step into High address, and find adrp opcode.
-    addr = step64(kernel, addr, 0x30, INSN_ADRP);
-    if (!addr) {
-        return 0;
-    }
-    //4. Get label from adrl opcode.
+    //3. Get label from adrl opcode.
     addr = follow_adrl(kernel, addr);
     
     return addr + kerndumpbase;
@@ -1115,10 +1118,10 @@ addr_t find_gPhysSize(void)
         }
     }
     if(!found)
-        return 0;
+        return find_gPhysBase() + 8;
     
     //2. Get label from [ADRL 8 bytes]
-    addr = follow_adrpStr(kernel, addr + 0x18);
+    addr = follow_adrpLdr(kernel, addr + 0x18);
     
     return addr + kerndumpbase;
 }
@@ -1280,7 +1283,47 @@ addr_t find_vn_kqfilter(void)
     
     return addr + kerndumpbase;
 }
+
+
+addr_t find_proc_object_size(void) {
+    //footprint
+    //_proc_task: ADRP            X8, #qword_FFFFFFF00A3091E8@PAGE
+    //qword_FFFFFFF00A3091E8 DCQ 0x530
+    
+    //E0 03 15 AA
+    //E1 04 81 52
+    //02 01 80 52
+    //03 11 80 52
+    uint32_t bytes[] = {
+        0xAA1503E0,
+        0x528104E1,
+        0x52800102,
+        0x52801103
+    };
+    
+    uint64_t addr = (uint64_t)boyermoore_horspool_memmem((unsigned char *)((uint64_t)kernel + xnucore_base), xnucore_size, (const unsigned char *)bytes, sizeof(bytes));
+    
+    if (!addr) {
+        return 0;
+    }
+    addr -= (uint64_t)kernel;
+    
+    //2. Step into High address, and find adrp opcode.
+    addr = step64(kernel, addr, 0x20, INSN_ADRP);
+    if (!addr) {
+        return 0;
+    }
+    
+    //3. Get label from adrl opcode.
+    addr = follow_adrpLdr(kernel, addr);
+    
+    //4. Get val from addr
+    uint64_t val = *(uint64_t *)(kernel + addr);
+    
+    return val;
+}
 //XXXXX
+
 
 #ifdef HAVE_MAIN
 
@@ -1326,6 +1369,7 @@ main(int argc, char **argv)
     CHECK(perfmon_devices);
     CHECK(ptov_table);
     CHECK(vn_kqfilter);
+    CHECK(proc_object_size);
     
     
     term_kernel();
