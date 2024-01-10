@@ -1282,20 +1282,6 @@ addr_t find_perfmon_dev_open(void)
 
 addr_t find_perfmon_devices(void)
 {
-//    //1. Find opcode (3F 01 08 6B 61 06 00 54 28 00 80 52 0A 14 80 52)
-//    uint32_t bytes[] = {
-//        0x6b08013f,
-//        0x54000661,
-//        0x52800028,
-//        0x5280140a
-//    };
-//
-//    uint64_t addr = (uint64_t)boyermoore_horspool_memmem((unsigned char *)((uint64_t)kernel + xnucore_base), xnucore_size, (const unsigned char *)bytes, sizeof(bytes));
-//
-//    if (!addr) {
-//        return 0;
-//    }
-//    addr -= (uint64_t)kernel;
     
     bool found = false;
     uint64_t addr = 0;
