@@ -1282,20 +1282,37 @@ addr_t find_perfmon_dev_open(void)
 
 addr_t find_perfmon_devices(void)
 {
-    //1. Find opcode (3F 01 08 6B 61 06 00 54 28 00 80 52 0A 14 80 52)
-    uint32_t bytes[] = {
-        0x6b08013f,
-        0x54000661,
-        0x52800028,
-        0x5280140a
-    };
+//    //1. Find opcode (3F 01 08 6B 61 06 00 54 28 00 80 52 0A 14 80 52)
+//    uint32_t bytes[] = {
+//        0x6b08013f,
+//        0x54000661,
+//        0x52800028,
+//        0x5280140a
+//    };
+//
+//    uint64_t addr = (uint64_t)boyermoore_horspool_memmem((unsigned char *)((uint64_t)kernel + xnucore_base), xnucore_size, (const unsigned char *)bytes, sizeof(bytes));
+//
+//    if (!addr) {
+//        return 0;
+//    }
+//    addr -= (uint64_t)kernel;
     
-    uint64_t addr = (uint64_t)boyermoore_horspool_memmem((unsigned char *)((uint64_t)kernel + xnucore_base), xnucore_size, (const unsigned char *)bytes, sizeof(bytes));
-    
-    if (!addr) {
-        return 0;
+    bool found = false;
+    uint64_t addr = 0;
+    addr_t off;
+    uint32_t *k;
+    k = (uint32_t *)(kernel + xnucore_base);
+    for (off = 0; off < xnucore_size - 4; off += 4, k++) {
+        if (k[0] == 0x6b08013f    //cmp w9, w8
+            && (k[1] & 0xff00001f) == 0x54000001    //b.ne *
+            && k[2] == 0x52800028    //mov w8, #1
+            && k[3] == 0x5280140a   /* mov w10, #0xa0 */) {
+            addr = off + xnucore_base;
+            found = true;
+        }
     }
-    addr -= (uint64_t)kernel;
+    if(!found)
+        return 0;
     
     //2. Step into High address, and find adrp opcode.
     addr = step64(kernel, addr, 0x18, INSN_ADRP);
