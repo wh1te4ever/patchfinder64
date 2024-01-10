@@ -1293,6 +1293,47 @@ addr_t find_ptov_table(void)
     return addr + kerndumpbase;
 }
 
+addr_t find_vn_kqfilter_2(void)
+{
+    //1F 05 00 71
+    //60 02 00 54
+    //1F 11 00 71
+    //E0 0C 00 54
+    //1F 1D 00 71
+    
+    bool found = false;
+    uint64_t addr = 0;
+    addr_t off;
+    uint32_t *k;
+    k = (uint32_t *)(kernel + xnucore_base);
+    for (off = 0; off < xnucore_size - 4; off += 4, k++) {
+        if (k[0] == 0x7100051f  //cmp w8, #1
+            && (k[1] & 0xff00001f) == 0x54000000    //b.eq *
+            && k[2] == 0x7100111f    //cmp w8, #4
+            && (k[3] & 0xff00001f) == 0x54000000  //b.eq *
+            && k[4] == 0x71001d1f    /* cmp w8, #7 */) {
+            addr = off + xnucore_base;
+            found = true;
+        }
+    }
+    if(!found)
+        return 0;
+    
+    //2. Find begin of address(bof64)
+    addr = bof64(kernel, xnucore_base, addr);
+    if (!addr) {
+        return 0;
+    }
+    
+    //3. check PACIBSP (7F 23 03 D5)
+    uint32_t op = *(uint32_t *)(kernel + addr - 4);
+    if(op == 0xD503237F) {
+        addr -= 4;
+    }
+    
+    return addr + kerndumpbase;
+}
+
 addr_t find_vn_kqfilter(void)
 {
     //1. Find opcode (01 00 80 D2 E0 03 15 AA E2 03 13 AA E3 03 14 AA)
@@ -1306,7 +1347,7 @@ addr_t find_vn_kqfilter(void)
     uint64_t addr = (uint64_t)boyermoore_horspool_memmem((unsigned char *)((uint64_t)kernel + xnucore_base), xnucore_size, (const unsigned char *)bytes, sizeof(bytes));
     
     if (!addr) {
-        return 0;
+        return find_vn_kqfilter_2();
     }
     addr -= (uint64_t)kernel;
     
@@ -1324,7 +1365,6 @@ addr_t find_vn_kqfilter(void)
     
     return addr + kerndumpbase;
 }
-
 
 addr_t find_proc_object_size(void) {
     //footprint
