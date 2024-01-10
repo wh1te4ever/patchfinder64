@@ -1202,6 +1202,49 @@ addr_t find_gVirtBase(void)
     return addr + kerndumpbase;
 }
 
+addr_t find_perfmon_dev_open_2(void)
+{
+//__TEXT_EXEC:__text:FFFFFFF007324700 3F 01 08 6B                 CMP             W9, W8
+//__TEXT_EXEC:__text:FFFFFFF007324704 E1 01 00 54                 B.NE            loc_FFFFFFF007324740
+//__TEXT_EXEC:__text:FFFFFFF007324708 A8 5E 00 12                 AND             W8, W21, #0xFFFFFF
+//__TEXT_EXEC:__text:FFFFFFF00732470C 1F 05 00 71                 CMP             W8, #1
+//__TEXT_EXEC:__text:FFFFFFF007324710 68 02 00 54                 B.HI            loc_FFFFFFF00732475C
+    
+    bool found = false;
+    uint64_t addr = 0;
+    addr_t off;
+    uint32_t *k;
+    k = (uint32_t *)(kernel + xnucore_base);
+    for (off = 0; off < xnucore_size - 4; off += 4, k++) {
+        if (k[0] == 0x53187ea8  //lsr w8, w21, #0x18
+            && (k[2] & 0xffc0001f) == 0xb9400009   // ldr w9, [Xn, n]
+            && k[3] == 0x6b08013f    //cmp w9, w8 v
+            && (k[4] & 0xff00001f) == 0x54000001    //b.ne *
+            && (k[5] & 0xfffffc00) == 0x12005c00    //and Wn, Wn, 0xfffff v
+            && k[6] == 0x7100051f   //cmp w8, #1 v
+            && (k[7] & 0xff00001f) == 0x54000008    /* b.hi * v */) {
+            addr = off + xnucore_base;
+            found = true;
+        }
+    }
+    if(!found)
+        return 0;
+    
+    //2. Find begin of address(bof64)
+    addr = bof64(kernel, xnucore_base, addr);
+    if (!addr) {
+        return 0;
+    }
+    
+    //3. check PACIBSP (7F 23 03 D5)
+    uint32_t op = *(uint32_t *)(kernel + addr - 4);
+    if(op == 0xD503237F) {
+        addr -= 4;
+    }
+    
+    return addr + kerndumpbase;
+}
+
 addr_t find_perfmon_dev_open(void)
 {
     bool found = false;
@@ -1220,7 +1263,7 @@ addr_t find_perfmon_dev_open(void)
         }
     }
     if(!found)
-        return 0;
+        return find_perfmon_dev_open_2();
     
     //2. Find begin of address(bof64)
     addr = bof64(kernel, xnucore_base, addr);
@@ -1447,6 +1490,7 @@ main(int argc, char **argv)
     CHECK(gPhysSize);
     CHECK(gVirtBase);
     CHECK(perfmon_dev_open);
+    CHECK(perfmon_dev_open_2);
     CHECK(perfmon_devices);
     CHECK(ptov_table);
     CHECK(vn_kqfilter);
