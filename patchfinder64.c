@@ -11,6 +11,7 @@
 #include <string.h>
 #include <errno.h>
 #include <sys/syscall.h>
+#include <mach-o/fat.h>
 #include "mac_policy.h"
 #include "patchfinder64.h"
 
@@ -624,8 +625,26 @@ follow_adrpLdr(const uint8_t *buf, addr_t call)
 static FHANDLE
 OPEN(const char *filename, int oflag)
 {
-    // XXX use sub_reopen() to handle FAT
-    return img4_reopen(file_open(filename, oflag), NULL, 0);
+    ssize_t rv;
+    char buf[28];
+    FHANDLE fd = file_open(filename, oflag);
+    if (!fd) {
+        return NULL;
+    }
+    rv = fd->read(fd, buf, 4);
+    fd->lseek(fd, 0, SEEK_SET);
+    if (rv == 4 && !MACHO(buf)) {
+        fd = img4_reopen(fd, NULL, 0);
+        if (!fd) {
+            return NULL;
+        }
+        rv = fd->read(fd, buf, sizeof(buf));
+        if (rv == sizeof(buf) && *(uint32_t *)buf == 0xBEBAFECA && __builtin_bswap32(*(uint32_t *)(buf + 4)) > 0) {
+            return sub_reopen(fd, __builtin_bswap32(*(uint32_t *)(buf + 16)), __builtin_bswap32(*(uint32_t *)(buf + 20)));
+        }
+        fd->lseek(fd, 0, SEEK_SET);
+    }
+    return fd;
 }
 #define CLOSE(fd) (fd)->close(fd)
 #define READ(fd, buf, sz) (fd)->read(fd, buf, sz)
@@ -650,6 +669,8 @@ PREAD(FHANDLE fd, void *buf, size_t count, off_t offset)
 
 static uint8_t *kernel = NULL;
 static size_t kernel_size = 0;
+
+static uint32_t arch_off = 0;
 
 int
 init_kernel(size_t (*kread)(uint64_t, void *, size_t), addr_t kernel_base, const char *filename)
@@ -677,6 +698,20 @@ init_kernel(size_t (*kread)(uint64_t, void *, size_t), addr_t kernel_base, const
         if (fd == INVALID_HANDLE) {
             return -1;
         }
+        
+        
+        uint32_t magic;
+        read(fd, &magic, 4);
+        lseek(fd, 0, SEEK_SET);
+        if (magic == 0xbebafeca) {
+            struct fat_header fat;
+            lseek(fd, sizeof(fat), SEEK_SET);
+            struct fat_arch_64 arch;
+            read(fd, &arch, sizeof(arch));
+            arch_off = ntohl(arch.offset);
+            lseek(fd, arch_off, SEEK_SET); // kerneldec gives a FAT binary for some reason
+        }
+        
         rv = READ(fd, buf, sizeof(buf));
         if (rv != sizeof(buf) || !MACHO(buf)) {
             CLOSE(fd);
@@ -691,7 +726,7 @@ init_kernel(size_t (*kread)(uint64_t, void *, size_t), addr_t kernel_base, const
 //    printf("hdr->ncmds: %u\n", hdr->ncmds);
     for (i = 0; i < hdr->ncmds; i++) {
         const struct load_command *cmd = (struct load_command *)q;
-        
+//        printf("i: %d, cmd->cmd: 0x%x\n", i, cmd->cmd);
         if (cmd->cmd == LC_SEGMENT_64) {
             const struct segment_command_64 *seg = (struct segment_command_64 *)q;
             if(seg->filesize == 0) {
@@ -834,6 +869,8 @@ init_kernel(size_t (*kread)(uint64_t, void *, size_t), addr_t kernel_base, const
             }
             q = q + cmd->cmdsize;
         }
+        
+        kernel += arch_off;
 
         CLOSE(fd);
     }
@@ -843,6 +880,7 @@ init_kernel(size_t (*kread)(uint64_t, void *, size_t), addr_t kernel_base, const
 void
 term_kernel(void)
 {
+    kernel -= arch_off;
     if (kernel != NULL) {
         free(kernel);
         kernel = NULL;
@@ -970,6 +1008,9 @@ find_strref(const char *string, int n, enum string_bases string_base, bool full_
 addr_t
 find_symbol(const char *symbol)
 {
+    //XXX Temporary disabled
+    return 0;
+    
     if (!symbol) {
         return 0;
     }
