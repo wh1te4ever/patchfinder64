@@ -1507,6 +1507,81 @@ find_zone_map_ref(void)
     return val + kerndumpbase;
 }
 
+addr_t
+find_trustcache(void)
+{
+    if (auth_ptrs) {
+        addr_t ref = find_strref("\"loadable trust cache buffer too small (%ld) for entries claimed (%d)\"", 1, string_base_cstring, false, true);
+        if (!ref) return 0;
+    
+        ref -= kerndumpbase;
+
+        addr_t val = calc64(kernel, ref-32*4, ref-24*4, 8);
+        if (!val) return 0;
+
+        return val + kerndumpbase;
+    }
+
+    addr_t __attribute__((__unused__))  cbz, call, func, val, adrp;
+    int reg;
+    uint32_t op;
+
+    addr_t ref = find_strref("%s: only allowed process can check the trust cache", 1, string_base_pstring, false, false); // Trying to find AppleMobileFileIntegrityUserClient::isCdhashInTrustCache
+    if (!ref) {
+        return 0;
+    }
+    ref -= kerndumpbase;
+    call = step64_back(kernel, ref, 11 * 4, INSN_CALL);
+    if (!call) {
+        return 0;
+    }
+    func = follow_call64(kernel, call);
+    if (!func) {
+        return 0;
+    }
+    call = step64(kernel, func, 8 * 4, INSN_CALL);
+    if (!call) {
+        return 0;
+    }
+    func = follow_call64(kernel, call);
+    if (!func) {
+        return 0;
+    }
+    call = step64(kernel, func, 8 * 4, INSN_CALL);
+    if (!call) {
+        return 0;
+    }
+    call = step64(kernel, call + 4, 8 * 4, INSN_CALL);
+    if (!call) {
+        return 0;
+    }
+    func = follow_call64(kernel, call);
+    if (!func) {
+        return 0;
+    }
+
+    call = step64(kernel, func, 12 * 4, INSN_CALL);
+    if (!call) {
+        return 0;
+    }
+
+    val = calc64(kernel, call, call + 6 * 4, 21);
+    if (!val) {
+        func = follow_stub(kernel, call);
+        if (!func) return 0;
+        func -=  kerndumpbase;
+        addr_t movw = step64(kernel, func, 0x300, 0x52800280, 0xffffffe0);
+        if (!movw) return 0;
+        adrp = step64_back(kernel, movw, 0x10, INSN_ADRP);
+        if (!adrp) return 0;
+        op = *(uint32_t*)(kernel + adrp + 4);
+        reg = op&0x1F;
+        val = calc64(kernel, adrp, movw, reg);
+        if (!val) return 0;
+    }
+    return val + kerndumpbase;
+}
+
 
 #ifdef HAVE_MAIN
 
@@ -1555,7 +1630,7 @@ main(int argc, char **argv)
     CHECK(vn_kqfilter);
     CHECK(proc_object_size);
     CHECK(zone_map_ref);
-    
+    CHECK(trustcache);
     
     term_kernel();
     return EXIT_SUCCESS;
