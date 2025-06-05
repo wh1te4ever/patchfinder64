@@ -1451,6 +1451,62 @@ addr_t find_proc_object_size(void) {
 }
 //XXXXX
 
+addr_t
+find_strref_old(const char *string, int n, int where)
+{
+    uint8_t *str;
+    addr_t base = cstring_base;
+    addr_t size = cstring_size;
+    switch (where) {
+        case 1:
+            base = pstring_base;
+            size = pstring_size;
+            break;
+    }
+    str = boyermoore_horspool_memmem(kernel + base, size, (uint8_t *)string, strlen(string));
+    if (!str) {
+        return 0;
+    }
+    return find_reference(str - kernel + kerndumpbase, n, where);
+}
+
+addr_t
+find_zone_map_ref(void)
+{
+    addr_t bof, val;
+    addr_t ref = find_strref_old("\"Nothing being freed to the zone_map. start = end = %p\\n\"", 1, 0);
+    if (!ref) {
+        return 0;
+    }
+    ref -= kerndumpbase;
+    bof = bof64(kernel, xnucore_base, ref);
+    if (!bof) {
+        return 0;
+    }
+#if 0
+#define INSN_ADRP 0x90000000, 0x9F000000
+    addr_t pos;
+    int r = -1, reg = *(uint32_t *)(kernel + ref) & 0x1F;
+    for (pos = ref; pos > bof; pos -= 4) {
+        pos = step64_back(kernel, pos, pos - bof, INSN_ADRP);
+        if (!pos) {
+            break;
+        }
+        r = *(uint32_t *)(kernel + pos) & 0x1F;
+        if (r != reg) {
+            printf("\t0x%llx\n", pos + kerndumpbase);
+            break;
+        }
+    }
+    assert(r != reg && r == 9);
+#endif
+    val = calc64(kernel, bof, ref, 9);
+    if (!val) {
+        return 0;
+    }
+    return val + kerndumpbase;
+}
+
 
 #ifdef HAVE_MAIN
 
@@ -1498,6 +1554,7 @@ main(int argc, char **argv)
     CHECK(ptov_table);
     CHECK(vn_kqfilter);
     CHECK(proc_object_size);
+    CHECK(zone_map_ref);
     
     
     term_kernel();
