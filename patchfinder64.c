@@ -723,10 +723,8 @@ init_kernel(size_t (*kread)(uint64_t, void *, size_t), addr_t kernel_base, const
         is64 = 4;
     }
     q = buf + sizeof(struct mach_header) + is64;
-//    printf("hdr->ncmds: %u\n", hdr->ncmds);
     for (i = 0; i < hdr->ncmds; i++) {
         const struct load_command *cmd = (struct load_command *)q;
-//        printf("i: %d, cmd->cmd: 0x%x\n", i, cmd->cmd);
         if (cmd->cmd == LC_SEGMENT_64) {
             const struct segment_command_64 *seg = (struct segment_command_64 *)q;
             if(seg->filesize == 0) {
@@ -1582,7 +1580,50 @@ find_trustcache(void)
     return val + kerndumpbase;
 }
 
+addr_t find_trustcache_12(void)
+{
+    bool found = false;
+    uint64_t addr = 0;
+    addr_t off;
+    uint32_t *k;
+    k = (uint32_t *)(kernel + xnucore_base);
+    for (off = 0; off < xnucore_size - 4; off += 4, k++) {
+        // 4A FD 41 D3 6A F2 FF B5 08 01 40 F9 A8 F1 FF B5
+        if (k[0] == 0xD341FD4A
+            && k[1] == 0xB5FFF26A
+            && k[2] == 0xF9400108
+            && k[3] == 0xB5FFF1A8) {
+            addr = off + xnucore_base;
+            found = true;
+        }
+    }
+    
+    addr = follow_adrpLdr(kernel, addr + 16);
+    
+    return addr + kerndumpbase;
+}
 
+addr_t find_zone_map_ref_12(void)
+{
+    bool found = false;
+    uint64_t addr = 0;
+    addr_t off;
+    uint32_t *k;
+    k = (uint32_t *)(kernel + xnucore_base);
+    for (off = 0; off < xnucore_size - 4; off += 4, k++) {
+        if ((k[0] & 0xffff0000) == 0xa94f0000
+            && k[1] == 0x9AC80A96
+            && k[2] == 0x8B21C2C8
+            && k[3] == 0xD1000515) {
+            addr = off + xnucore_base;
+            found = true;
+        }
+    }
+    
+    addr = follow_adrpLdr(kernel, addr + 16);
+    
+    return addr + kerndumpbase;
+}
 #ifdef HAVE_MAIN
 
 int
@@ -1631,6 +1672,8 @@ main(int argc, char **argv)
     CHECK(proc_object_size);
     CHECK(zone_map_ref);
     CHECK(trustcache);
+    CHECK(trustcache_12);
+    CHECK(zone_map_ref_12);
     
     term_kernel();
     return EXIT_SUCCESS;
